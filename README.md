@@ -1,7 +1,7 @@
 # AI-Powered Course Module Generator
 
 ## Overview
-This project develops an AI chatbot that generates structured course modules based on teacher-provided resources (PDFs, articles, web links) and example formats. The AI automates lesson creation, refines content based on teacher feedback, and dynamically updates a website with new modules.
+This project develops an AI chatbot that generates structured course modules based on teacher-provided resources (PDFs, articles, web links) and example formats. The AI automates lesson creation, refines content based on teacher feedback, and dynamically updates a website with new modules. See the supporting documents for flow charts, and code examples.
 
 ## Timeline (8 Weeks)
 | Phase | Task | Duration | Deliverable |
