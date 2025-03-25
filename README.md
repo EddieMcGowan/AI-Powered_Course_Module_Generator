@@ -14,6 +14,10 @@ This project develops an AI chatbot that generates structured course modules bas
 | Week 7 | Feedback & Refinement | 1 week | Teacher feedback system |
 | Week 8 | Testing & Final Deployment | 1 week | Fully functional MVP |
 
+## Progress Update
+Vicuna is running on magic-02. Week 1 is complete.
+Implementation of the text extraction pipeline is now in progress.
+
 ## Value Over Commercial Models
 - **Multi-Media Content Input**: Unlike free ChatGPT, this system will accept PDFs, images, and tables as inputs.
 - **Multi-Media Content Output**: Outputs can include web pages, PDFs, images, or tables.
