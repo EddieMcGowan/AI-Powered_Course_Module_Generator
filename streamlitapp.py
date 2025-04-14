@@ -1,3 +1,4 @@
+
 import streamlit as st
 import fitz
 import pdfplumber
@@ -9,6 +10,10 @@ import tempfile
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import re
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import inch
+from reportlab.lib.utils import ImageReader
 
 # ------------------- Extraction Utilities -------------------
 
@@ -43,25 +48,15 @@ def extract_images_pdf(pdf_path, save_folder="images"):
             image_paths.append(path)
     return image_paths
 
-# ------------------- Gen AI Lesson Generator -------------------
+# ------------------- Prompting Logic -------------------
 
 def table_to_markdown(tables):
     return [df.to_markdown(index=False) for df in tables]
 
-def generate_lesson_from_extracted_data(pdf_path):
-    # Extract from PDF
-    text = extract_text_pymupdf(pdf_path)
-    tables = extract_tables_pdf(pdf_path)
-    images = extract_images_pdf(pdf_path)
-
-    # Prep supporting markdown
-    tables_markdown = table_to_markdown(tables)
+def get_context_block(text, tables_markdown, images):
     joined_tables_md = "\n\n".join(tables_markdown)
     joined_images = ", ".join(images)
-
-    # Prompt
-    prompt = (
-        "You are an educational content generator. Create a structured lesson based on the text, tables, and images below.\n\n"
+    return (
         f"### Text:\n{text[:3000]}\n\n"
         f"### Tables (Markdown format):\n{joined_tables_md}\n\n"
         f"### Images (filenames):\n{joined_images}\n\n"
@@ -72,7 +67,8 @@ def generate_lesson_from_extracted_data(pdf_path):
         "- Place unused images/tables under '📎 Visuals & Extras'.\n"
     )
 
-    # Load LLaMA 2 model
+def generate_lesson_from_prompt(user_prompt, context_block):
+    full_prompt = f"{user_prompt.strip()}\n\n{context_block}"
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
     model = AutoModelForCausalLM.from_pretrained(
         "meta-llama/Llama-2-7b-chat-hf",
@@ -80,7 +76,7 @@ def generate_lesson_from_extracted_data(pdf_path):
         torch_dtype=torch.float16
     )
 
-    input_ids = tokenizer(prompt, return_tensors="pt", truncation=True).input_ids.to(model.device)
+    input_ids = tokenizer(full_prompt, return_tensors="pt", truncation=True).input_ids.to(model.device)
     with torch.no_grad():
         output = model.generate(
             input_ids=input_ids,
@@ -93,23 +89,19 @@ def generate_lesson_from_extracted_data(pdf_path):
 
     generated_ids = output[0][input_ids.shape[-1]:]
     lesson = tokenizer.decode(generated_ids, skip_special_tokens=True)
+    return lesson
 
-    return lesson, tables_markdown, images
-
-# ------------------- Rendering with Visuals -------------------
+# ------------------- Display & Download -------------------
 
 def render_markdown_with_visuals(lesson: str, tables_md: list, images: list):
     used_tables = set()
     used_images = set()
-
-    # Replace table tags
     for i, table_md in enumerate(tables_md):
         tag = f"[Table {i+1}]"
         if tag in lesson:
             lesson = lesson.replace(tag, f"\n\n{table_md}\n\n")
             used_tables.add(i)
 
-    # Split and render line by line
     lines = lesson.split("\n")
     for line in lines:
         image_match = re.match(r"!\[image(\d+)\]\([^)]+\)", line.strip())
@@ -121,36 +113,146 @@ def render_markdown_with_visuals(lesson: str, tables_md: list, images: list):
         else:
             st.markdown(line)
 
-    # Unused items
-    unused = []
-    for i, table in enumerate(tables_md):
-        if i not in used_tables:
-            unused.append(f"**[Unused Table {i+1}]**\n\n{table}")
-    for i, path in enumerate(images):
-        if i not in used_images:
-            st.image(path, caption=f"Unused image{i+1}", use_column_width=True)
+    unused_tables = [tables_md[i] for i in range(len(tables_md)) if i not in used_tables]
+    unused_images = [images[i] for i in range(len(images)) if i not in used_images]
 
-    if unused:
-        st.markdown("---\n### Visuals & Extras")
-        for u in unused:
-            if isinstance(u, str):
-                st.markdown(u)
+    if unused_tables or unused_images:
+        st.markdown("---\n### 📎 Visuals & Extras")
+        for i, table in enumerate(unused_tables):
+            st.markdown(f"**[Unused Table {i+1}]**\n\n{table}")
+        for i, path in enumerate(unused_images):
+            st.image(path, caption=f"Unused image {i+1}", use_column_width=True)
+
+    return unused_tables, unused_images
+
+def download_as_pdf(lesson, unused_tables, unused_images, filename="lesson_plan.pdf"):
+    output_path = os.path.join(tempfile.gettempdir(), filename)
+    c = canvas.Canvas(output_path, pagesize=letter)
+    width, height = letter
+    x_margin = 1 * inch
+    y = height - 1 * inch
+    line_height = 14
+    max_lines = int((height - 2 * inch) / line_height)
+
+    def write_line(text):
+        nonlocal y
+        if y <= 1 * inch:
+            c.showPage()
+            c.setFont("Helvetica", 11)
+            y = height - 1 * inch
+        c.drawString(x_margin, y, text)
+        y -= line_height
+
+    c.setFont("Helvetica", 11)
+
+    # Lesson content
+    for line in lesson.split("\n"):
+        write_line(line)
+
+    write_line("")
+    write_line("📎 Visuals & Extras")
+    write_line("")
+
+    for i, table in enumerate(unused_tables):
+        write_line(f"[Unused Table {i+1}]")
+        for tline in table.split("\n"):
+            write_line(tline)
+        write_line("")
+
+    for i, img_path in enumerate(unused_images):
+        try:
+            img = Image.open(img_path)
+            img.thumbnail((400, 400))
+            if y <= 2.5 * inch:
+                c.showPage()
+                c.setFont("Helvetica", 11)
+                y = height - 1 * inch
+            c.drawImage(ImageReader(img), x_margin, y - 200, width=3.5*inch, preserveAspectRatio=True, mask='auto')
+            write_line(f"Unused Image {i+1}: {os.path.basename(img_path)}")
+            y -= 210
+        except Exception as e:
+            write_line(f"[Could not load image {img_path}]")
+
+    c.save()
+    return output_path
 
 # ------------------- Streamlit App -------------------
 
 st.set_page_config(page_title="Gen AI Lesson Generator", layout="wide")
 st.title("📘 Gen AI-Powered Lesson Plan Generator")
-st.write("Upload a structured PDF and get a full AI-generated lesson plan with embedded content.")
 
-uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
+DEFAULT_USER_PROMPT = "You are an educational content generator. Create a structured lesson based on the text, tables, and images attached."
 
-if uploaded_file:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        tmp_file.write(uploaded_file.read())
-        tmp_path = tmp_file.name
+if "user_prompt" not in st.session_state:
+    st.session_state.user_prompt = DEFAULT_USER_PROMPT
+if "context_block" not in st.session_state:
+    st.session_state.context_block = ""
+if "tables_md" not in st.session_state:
+    st.session_state.tables_md = []
+if "images" not in st.session_state:
+    st.session_state.images = []
+if "last_lesson" not in st.session_state:
+    st.session_state.last_lesson = ""
+if "unused_tables" not in st.session_state:
+    st.session_state.unused_tables = []
+if "unused_images" not in st.session_state:
+    st.session_state.unused_images = []
 
-    with st.spinner("Generating your lesson..."):
-        lesson, tables_md, images = generate_lesson_from_extracted_data(tmp_path)
+uploaded_files = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
 
-    st.markdown("## Generated Lesson")
-    render_markdown_with_visuals(lesson, tables_md, images)
+if uploaded_files:
+    combined_text = ""
+    all_tables = []
+    all_images = []
+    for file in uploaded_files:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(file.read())
+            path = tmp_file.name
+            combined_text += extract_text_pymupdf(path) + "\n"
+            all_tables.extend(extract_tables_pdf(path))
+            all_images.extend(extract_images_pdf(path))
+
+    st.session_state.tables_md = table_to_markdown(all_tables)
+    st.session_state.images = all_images
+    st.session_state.context_block = get_context_block(combined_text, st.session_state.tables_md, st.session_state.images)
+
+    st.session_state.user_prompt = st.text_area(
+        "✏️ Customize your lesson prompt:",
+        value=st.session_state.user_prompt,
+        height=200
+    )
+
+    if st.button("Generate Lesson"):
+        with st.spinner("Generating..."):
+            lesson = generate_lesson_from_prompt(st.session_state.user_prompt, st.session_state.context_block)
+        st.session_state.last_lesson = lesson
+        st.markdown("## 🧠 Lesson Plan")
+        unused_tables, unused_images = render_markdown_with_visuals(lesson, st.session_state.tables_md, st.session_state.images)
+        st.session_state.unused_tables = unused_tables
+        st.session_state.unused_images = unused_images
+
+    if st.session_state.last_lesson:
+        st.markdown("### 🔁 Reprompt Lesson")
+        reprompt_input = st.text_area(
+            "Modify and reprompt:",
+            value=st.session_state.user_prompt,
+            height=200,
+            key="reprompt_input"
+        )
+        if st.button("Reprompt with changes"):
+            with st.spinner("Reprompting..."):
+                lesson = generate_lesson_from_prompt(reprompt_input, st.session_state.context_block)
+            st.session_state.user_prompt = reprompt_input
+            st.session_state.last_lesson = lesson
+            st.markdown("## 🧠 Updated Lesson Plan")
+            unused_tables, unused_images = render_markdown_with_visuals(lesson, st.session_state.tables_md, st.session_state.images)
+            st.session_state.unused_tables = unused_tables
+            st.session_state.unused_images = unused_images
+
+        pdf_path = download_as_pdf(
+            st.session_state.last_lesson,
+            st.session_state.unused_tables,
+            st.session_state.unused_images
+        )
+        with open(pdf_path, "rb") as f:
+            st.download_button("📄 Download Lesson (PDF with Images)", f, file_name="lesson_plan.pdf")
