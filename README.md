@@ -88,17 +88,11 @@ See the supporting documents for flow charts and code examples.
 - Enable teacher feedback for continual refinement.
 
 ## Tech Stack
-- **LLaVA**: LLM that accepts multi-modal inputs.
+- **LLaMA**: Gen AI Model
 - **BeautifulSoup**: HTML content extraction.
 - **PyMuPDF**: PDF text and structure extraction.
 - **PDFPlumber & Pillow**: PDF table and image extraction.
 - **Flask**: Website backend for AI-generated content publishing.
-
-## Next Steps
-- Deploy **LLaVA** model on an HCP server.
-- Finalize **text extraction pipeline**.
-- Develop **API** for AI-powered module generation.
-- Launch **website prototype** for live testing.
 
 ---
 
