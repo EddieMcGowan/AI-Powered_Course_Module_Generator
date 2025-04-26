@@ -8,7 +8,7 @@ Supporting documents are included in the repository.
 ## Data Sources
 - **Teacher-provided materials**: PDFs, articles, and web links.
 - **Public websites**: For web scraping text, tables, and images.
-- No external public dataset is required — the tool processes user-uploaded resources. I uploaded a scientific paper I used for testing.
+- No external public dataset is required — the tool processes user-uploaded resources. I uploaded a scientific paper pdf and a webpage I used for testing.
 
 ## Packages Required
 | Package | Purpose |
