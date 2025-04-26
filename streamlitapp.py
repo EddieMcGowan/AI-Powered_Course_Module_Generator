@@ -1,4 +1,3 @@
-
 import streamlit as st
 import fitz
 import pdfplumber
@@ -8,8 +7,10 @@ import io
 import os
 import tempfile
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+import requests
+from bs4 import BeautifulSoup
 import re
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
@@ -48,6 +49,77 @@ def extract_images_pdf(pdf_path, save_folder="images"):
             image_paths.append(path)
     return image_paths
 
+def extract_text_webpage(url):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    text = "\n".join([p.get_text(strip=True) for p in soup.find_all("p")])
+    return text
+
+def extract_tables_webpage(url):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    tables = []
+    for table in soup.find_all("table"):
+        rows = []
+        for row in table.find_all("tr"):
+            cells = [cell.get_text(strip=True) for cell in row.find_all(["td", "th"])]
+            rows.append(cells)
+        if rows:
+            header = rows[0]
+            body = rows[1:]
+            # Only keep rows where number of cells matches header
+            clean_body = [r for r in body if len(r) == len(header)]
+            if clean_body:
+                try:
+                    df = pd.DataFrame(clean_body, columns=header)
+                    tables.append(df)
+                except Exception as e:
+                    print(f"Skipping a table due to error: {e}")
+    return tables
+
+def extract_images_webpage(url, save_folder="images"):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    images = []
+    os.makedirs(save_folder, exist_ok=True)
+    for i, img in enumerate(soup.find_all("img")):
+        img_url = img.get("src")
+        if img_url and img_url.startswith(("http", "//")):
+            img_url = img_url if img_url.startswith("http") else "https:" + img_url
+            try:
+                img_data = requests.get(img_url).content
+                img_filename = os.path.join(save_folder, f"image_{i+1}.jpg")
+                with open(img_filename, "wb") as f:
+                    f.write(img_data)
+                images.append(img_filename)
+            except Exception:
+                continue
+    return images
+
+def extract_text(source):
+    if source.endswith(".pdf"):
+        return extract_text_pymupdf(source)
+    elif source.startswith("http"):
+        return extract_text_webpage(source)
+    else:
+        raise ValueError("Unsupported file type. Provide a PDF or URL.")
+
+def extract_tables(source):
+    if source.endswith(".pdf"):
+        return extract_tables_pdf(source)
+    elif source.startswith("http"):
+        return extract_tables_webpage(source)
+    else:
+        raise ValueError("Unsupported file type. Provide a PDF or URL.")
+
+def extract_images(source, save_folder="images"):
+    if source.endswith(".pdf"):
+        return extract_images_pdf(source, save_folder)
+    elif source.startswith("http"):
+        return extract_images_webpage(source, save_folder)
+    else:
+        raise ValueError("Unsupported file type. Provide a PDF or URL.")
+
 # ------------------- Prompting Logic -------------------
 
 def table_to_markdown(tables):
@@ -57,7 +129,7 @@ def get_context_block(text, tables_markdown, images):
     joined_tables_md = "\n\n".join(tables_markdown)
     joined_images = ", ".join(images)
     return (
-        f"### Text:\n{text[:3000]}\n\n"
+        f"### Text:\n{text[:2000]}\n\n"
         f"### Tables (Markdown format):\n{joined_tables_md}\n\n"
         f"### Images (filenames):\n{joined_images}\n\n"
         "### Instructions:\n"
@@ -75,7 +147,6 @@ def generate_lesson_from_prompt(user_prompt, context_block):
         device_map="auto",
         torch_dtype=torch.float16
     )
-
     input_ids = tokenizer(full_prompt, return_tensors="pt", truncation=True).input_ids.to(model.device)
     with torch.no_grad():
         output = model.generate(
@@ -86,7 +157,6 @@ def generate_lesson_from_prompt(user_prompt, context_block):
             top_p=0.95,
             temperature=0.7,
         )
-
     generated_ids = output[0][input_ids.shape[-1]:]
     lesson = tokenizer.decode(generated_ids, skip_special_tokens=True)
     return lesson
@@ -144,21 +214,17 @@ def download_as_pdf(lesson, unused_tables, unused_images, filename="lesson_plan.
         y -= line_height
 
     c.setFont("Helvetica", 11)
-
-    # Lesson content
     for line in lesson.split("\n"):
         write_line(line)
 
     write_line("")
     write_line("📎 Visuals & Extras")
     write_line("")
-
     for i, table in enumerate(unused_tables):
         write_line(f"[Unused Table {i+1}]")
         for tline in table.split("\n"):
             write_line(tline)
         write_line("")
-
     for i, img_path in enumerate(unused_images):
         try:
             img = Image.open(img_path)
@@ -170,9 +236,8 @@ def download_as_pdf(lesson, unused_tables, unused_images, filename="lesson_plan.
             c.drawImage(ImageReader(img), x_margin, y - 200, width=3.5*inch, preserveAspectRatio=True, mask='auto')
             write_line(f"Unused Image {i+1}: {os.path.basename(img_path)}")
             y -= 210
-        except Exception as e:
+        except Exception:
             write_line(f"[Could not load image {img_path}]")
-
     c.save()
     return output_path
 
@@ -199,18 +264,28 @@ if "unused_images" not in st.session_state:
     st.session_state.unused_images = []
 
 uploaded_files = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
+url_input = st.text_input("Or enter a webpage URL to extract content:")
 
-if uploaded_files:
+if uploaded_files or url_input:
     combined_text = ""
     all_tables = []
     all_images = []
-    for file in uploaded_files:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            tmp_file.write(file.read())
-            path = tmp_file.name
-            combined_text += extract_text_pymupdf(path) + "\n"
-            all_tables.extend(extract_tables_pdf(path))
-            all_images.extend(extract_images_pdf(path))
+    sources = []
+
+    if uploaded_files:
+        for file in uploaded_files:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                tmp_file.write(file.read())
+                path = tmp_file.name
+                sources.append(path)
+
+    if url_input:
+        sources.append(url_input)
+
+    for src in sources:
+        combined_text += extract_text(src) + "\n"
+        all_tables.extend(extract_tables(src))
+        all_images.extend(extract_images(src))
 
     st.session_state.tables_md = table_to_markdown(all_tables)
     st.session_state.images = all_images
