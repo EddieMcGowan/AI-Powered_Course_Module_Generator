@@ -32,10 +32,6 @@ pip install torch transformers pymupdf pdfplumber pillow beautifulsoup4 requests
 
 ## Instructions to Run
 1. **On the Lehigh VPN log into the magic 02 server.http://magic02.cse.lehigh.edu**:
-   ```bash
-   git clone https://github.com/your_username/your_project_name.git
-   cd your_project_name
-   ```
 2. **Load the streamlit app app.py (files are uploaded on the app)**:
 3. **Install dependencies**:
    ```bash
