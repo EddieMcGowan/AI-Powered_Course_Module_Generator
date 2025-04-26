@@ -40,9 +40,9 @@ pip install torch transformers pymupdf pdfplumber pillow beautifulsoup4 requests
    *(or manually install the packages listed above)*
 
 4. **Identify the GPU with the lowest memory usage** asusing a GPU with a high memory usage can cause out of memory errors
-5. **Launch the Streamlit app on terminal** Replace the CUDA_VISIBLE_DEVICE with the GPU number with the lowest memory usage:
+5. **Launch the Streamlit app on terminal** Replace the CUDA_VISIBLE_DEVICE number "#" with the GPU number with the lowest memory usage:
    ```bash
-   CUDA_VISIBLE_DEVICES=# streamlit run steamweb.py --server.port 5005
+   CUDA_VISIBLE_DEVICES= # streamlit run streamlitapp.py --server.port 5005
    ```
 6. **Upload PDFs** or **enter a webpage URL** to generate a course module.
 7. **Download** the generated lesson as a formatted PDF.
