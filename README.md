@@ -100,3 +100,7 @@ See the supporting documents for flow charts and code examples.
 ## Contributors
 - **Alex Kash**
 - **Eddie McGowan**
+
+---
+
+## Documentation/References: Included in the documents in the documentation folder
