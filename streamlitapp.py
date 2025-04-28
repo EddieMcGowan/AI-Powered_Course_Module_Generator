@@ -15,13 +15,17 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.lib.utils import ImageReader
+import textwrap  
+# Using the same functions as the jupyter notebook
+# I wrote documents in my github explainig these functions in the documents folder
+# Extraction Utilities
 
-# ------------------- Extraction Utilities -------------------
-
+#extract text from pdf
 def extract_text_pymupdf(pdf_path):
     doc = fitz.open(pdf_path)
     return "\n".join([page.get_text("text") for page in doc])
 
+#extract tables from pdf
 def extract_tables_pdf(pdf_path):
     tables = []
     with pdfplumber.open(pdf_path) as pdf:
@@ -35,6 +39,7 @@ def extract_tables_pdf(pdf_path):
                     continue
     return tables
 
+# extract images from pdf
 def extract_images_pdf(pdf_path, save_folder="images"):
     os.makedirs(save_folder, exist_ok=True)
     doc = fitz.open(pdf_path)
@@ -49,12 +54,14 @@ def extract_images_pdf(pdf_path, save_folder="images"):
             image_paths.append(path)
     return image_paths
 
+# extract text from webpages
 def extract_text_webpage(url):
     response = requests.get(url)
     soup = BeautifulSoup(response.text, "html.parser")
     text = "\n".join([p.get_text(strip=True) for p in soup.find_all("p")])
     return text
 
+# extract tables form webpages
 def extract_tables_webpage(url):
     response = requests.get(url)
     soup = BeautifulSoup(response.text, "html.parser")
@@ -77,6 +84,7 @@ def extract_tables_webpage(url):
                     print(f"Skipping a table due to error: {e}")
     return tables
 
+# extract images from weppages
 def extract_images_webpage(url, save_folder="images"):
     response = requests.get(url)
     soup = BeautifulSoup(response.text, "html.parser")
@@ -96,6 +104,7 @@ def extract_images_webpage(url, save_folder="images"):
                 continue
     return images
 
+# combine the text extraction from pdf and webpages
 def extract_text(source):
     if source.endswith(".pdf"):
         return extract_text_pymupdf(source)
@@ -104,6 +113,7 @@ def extract_text(source):
     else:
         raise ValueError("Unsupported file type. Provide a PDF or URL.")
 
+# combine the table extraction from pdf and webpages
 def extract_tables(source):
     if source.endswith(".pdf"):
         return extract_tables_pdf(source)
@@ -112,6 +122,7 @@ def extract_tables(source):
     else:
         raise ValueError("Unsupported file type. Provide a PDF or URL.")
 
+# combine the image extraction from pdf and webpages
 def extract_images(source, save_folder="images"):
     if source.endswith(".pdf"):
         return extract_images_pdf(source, save_folder)
@@ -120,11 +131,13 @@ def extract_images(source, save_folder="images"):
     else:
         raise ValueError("Unsupported file type. Provide a PDF or URL.")
 
-# ------------------- Prompting Logic -------------------
+#  Prompting Logic 
 
+# Convert tables to markdown
 def table_to_markdown(tables):
     return [df.to_markdown(index=False) for df in tables]
 
+# Context to provide to the model
 def get_context_block(text, tables_markdown, images):
     joined_tables_md = "\n\n".join(tables_markdown)
     joined_images = ", ".join(images)
@@ -139,6 +152,7 @@ def get_context_block(text, tables_markdown, images):
         "- Place unused images/tables under '📎 Visuals & Extras'.\n"
     )
 
+# Generate the lesson
 def generate_lesson_from_prompt(user_prompt, context_block):
     full_prompt = f"{user_prompt.strip()}\n\n{context_block}"
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
@@ -161,8 +175,8 @@ def generate_lesson_from_prompt(user_prompt, context_block):
     lesson = tokenizer.decode(generated_ids, skip_special_tokens=True)
     return lesson
 
-# ------------------- Display & Download -------------------
 
+# Render the tables and images in the lesson output
 def render_markdown_with_visuals(lesson: str, tables_md: list, images: list):
     used_tables = set()
     used_images = set()
@@ -182,7 +196,7 @@ def render_markdown_with_visuals(lesson: str, tables_md: list, images: list):
                 used_images.add(idx)
         else:
             st.markdown(line)
-
+    # place the unsued tables and images at the bottom of the file
     unused_tables = [tables_md[i] for i in range(len(tables_md)) if i not in used_tables]
     unused_images = [images[i] for i in range(len(images)) if i not in used_images]
 
@@ -195,6 +209,7 @@ def render_markdown_with_visuals(lesson: str, tables_md: list, images: list):
 
     return unused_tables, unused_images
 
+# download as a pdf
 def download_as_pdf(lesson, unused_tables, unused_images, filename="lesson_plan.pdf"):
     output_path = os.path.join(tempfile.gettempdir(), filename)
     c = canvas.Canvas(output_path, pagesize=letter)
@@ -202,46 +217,71 @@ def download_as_pdf(lesson, unused_tables, unused_images, filename="lesson_plan.
     x_margin = 1 * inch
     y = height - 1 * inch
     line_height = 14
-    max_lines = int((height - 2 * inch) / line_height)
 
+    # dynamically wrap text in the pdf
     def write_line(text):
         nonlocal y
-        if y <= 1 * inch:
-            c.showPage()
-            c.setFont("Helvetica", 11)
-            y = height - 1 * inch
-        c.drawString(x_margin, y, text)
-        y -= line_height
+        # Dynamically calculate max characters that fit per line
+        max_chars = int((width - 2 * x_margin) / (6 * 0.75))  
+        wrapped_lines = textwrap.wrap(text, width=max_chars)
+        for line in wrapped_lines:
+            if y <= 1 * inch:
+                c.showPage()
+                c.setFont("Helvetica", 11)
+                y = height - 1 * inch
+            c.drawString(x_margin, y, line)
+            y -= line_height
 
     c.setFont("Helvetica", 11)
+
+    # Write lesson content
     for line in lesson.split("\n"):
         write_line(line)
 
-    write_line("")
+    write_line("")  # Add a blank line
     write_line("📎 Visuals & Extras")
     write_line("")
+
+    # Display unused tables
     for i, table in enumerate(unused_tables):
         write_line(f"[Unused Table {i+1}]")
         for tline in table.split("\n"):
             write_line(tline)
         write_line("")
+
+    # Display unused images
     for i, img_path in enumerate(unused_images):
         try:
             img = Image.open(img_path)
-            img.thumbnail((400, 400))
-            if y <= 2.5 * inch:
+            img_width, img_height = img.size
+
+            # Resize image to fit width if necessary
+            max_width = 4 * inch  # you can adjust
+            if img_width > max_width:
+                scale = max_width / img_width
+                img_width *= scale
+                img_height *= scale
+
+            # If not enough space for image, go to next page
+            if y - img_height < 1 * inch:
                 c.showPage()
                 c.setFont("Helvetica", 11)
                 y = height - 1 * inch
-            c.drawImage(ImageReader(img), x_margin, y - 200, width=3.5*inch, preserveAspectRatio=True, mask='auto')
+
+            # Draw image
+            c.drawImage(ImageReader(img), x_margin, y - img_height, width=img_width, height=img_height, preserveAspectRatio=True, mask='auto')
+            y = y - img_height - 20  # Move y down after image (+ 20 points spacing)
+
+            # Write caption
             write_line(f"Unused Image {i+1}: {os.path.basename(img_path)}")
-            y -= 210
         except Exception:
             write_line(f"[Could not load image {img_path}]")
+
     c.save()
     return output_path
 
-# ------------------- Streamlit App -------------------
+
+#  Streamlit App 
 
 st.set_page_config(page_title="Gen AI Lesson Generator", layout="wide")
 st.title("📘 Gen AI-Powered Lesson Plan Generator")
@@ -262,10 +302,11 @@ if "unused_tables" not in st.session_state:
     st.session_state.unused_tables = []
 if "unused_images" not in st.session_state:
     st.session_state.unused_images = []
-
+# Upload files
 uploaded_files = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
 url_input = st.text_input("Or enter a webpage URL to extract content:")
 
+# Combine the context from the files
 if uploaded_files or url_input:
     combined_text = ""
     all_tables = []
@@ -296,7 +337,7 @@ if uploaded_files or url_input:
         value=st.session_state.user_prompt,
         height=200
     )
-
+    # Generate a lesson from the context provided
     if st.button("Generate Lesson"):
         with st.spinner("Generating..."):
             lesson = generate_lesson_from_prompt(st.session_state.user_prompt, st.session_state.context_block)
@@ -305,7 +346,7 @@ if uploaded_files or url_input:
         unused_tables, unused_images = render_markdown_with_visuals(lesson, st.session_state.tables_md, st.session_state.images)
         st.session_state.unused_tables = unused_tables
         st.session_state.unused_images = unused_images
-
+    # Reprompt the lesson if requested by the user
     if st.session_state.last_lesson:
         st.markdown("### 🔁 Reprompt Lesson")
         reprompt_input = st.text_area(
@@ -323,7 +364,7 @@ if uploaded_files or url_input:
             unused_tables, unused_images = render_markdown_with_visuals(lesson, st.session_state.tables_md, st.session_state.images)
             st.session_state.unused_tables = unused_tables
             st.session_state.unused_images = unused_images
-
+        # Download as a pdf
         pdf_path = download_as_pdf(
             st.session_state.last_lesson,
             st.session_state.unused_tables,
