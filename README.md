@@ -31,6 +31,10 @@ pip install torch transformers pymupdf pdfplumber pillow beautifulsoup4 requests
 ```
 
 ## Instructions to Run
+The steamlit application is already running on: http://magic02.cse.lehigh.edu:5005
+
+To view the streamlit application, you need to first log into the Lehigh VPN.
+
 1. **On the Lehigh VPN log into the magic 02 server.http://magic02.cse.lehigh.edu**:
 2. **Load the streamlit app app.py (files are uploaded on the app)**:
 3. **Install dependencies**:
