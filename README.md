@@ -31,7 +31,7 @@ pip install torch transformers pymupdf pdfplumber pillow beautifulsoup4 requests
 ```
 
 ## Instructions to Run
-The steamlit application is already running on: http://magic02.cse.lehigh.edu:5005
+The streamlit application is already running on: http://magic02.cse.lehigh.edu:5005
 
 To view the streamlit application, you need to first log into the Lehigh VPN.
 
